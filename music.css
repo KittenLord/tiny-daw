@@ -1,4 +1,43 @@
-.piano-keys, .circle {
-    width: 600px;
-    height: 600px;
+html, body {
+    width: 100%;
+    height: 100%;
+
+    padding: 0;
+    margin: 0;
+}
+
+.tonality {
+    height: 60%;
+    width: 100%;
+
+    display: flex;
+    flex-direction: row;
+
+    svg.tonality-circle {
+        width: 50%;
+        height: auto;
+    }
+
+    .tonality-settings {
+        width: 50%;
+        height: 100%;
+
+        display: flex;
+        flex-direction: column;
+
+        svg.tonality-settings-picker {
+            height: auto;
+            width: 100%;
+        }
+    }
+}
+
+.piano {
+    height: 40%;
+    width: 100%;
+
+    svg.piano-keys {
+        height: 100%;
+        width: auto;
+    }
 }

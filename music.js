@@ -34,6 +34,10 @@ function v_sincos(m, a) {
     return v_xy(m * Math.cos(a), m * Math.sin(a))
 }
 
+function mod(a, b) {
+    return ((a % b) + b) % b
+}
+
 
 
 let _keyboardOctaves = "zsxdcvgbhnjmq2w3er5t6y7u"
@@ -113,10 +117,50 @@ const INT_PFT8 = 12
 
 
 
+const MODE_IONIAN = 0
+const MODE_DORIAN = 1
+const MODE_PHRYGIAN = 2
+const MODE_LYDIAN = 3
+const MODE_MIXOLYDIAN = 4
+const MODE_AEOLIAN = 5
+const MODE_LOCRIAN = 6
+
+let _modeNames = [ "Major", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Minor", "Locrian" ]
+function getModeName(mode) {
+    return _modeNames[mode]
+}
+
+let _modeShortNames = [ "Maj", "Dor", "Phr", "Lyd", "Mix", "Min", "Loc" ]
+function getModeShortName(mode) {
+    return _modeShortNames[mode]
+}
+
+
+let _upperRoman = [ "I", "II", "III", "IV", "V", "VI", "VII" ]
+let _lowerRoman = [ "i", "ii", "iii", "iv", "v", "vi", "vii" ]
+
+function getRomanLabel(degree, major) {
+    if(major) return _upperRoman[degree]
+    else      return _lowerRoman[degree]
+}
+
+
+
 const TRIAD_DIM = 0
 const TRIAD_MIN = 1
 const TRIAD_MAJ = 2
 const TRIAD_AUG = 3
+
+
+
+function mkChord(note, type) {
+    return {
+        root: note,
+        type: type,
+    }
+}
+
+
 
 function keyToTriad(key, triad) {
     let m1 = (triad === TRIAD_DIM || triad === TRIAD_MIN)
@@ -292,7 +336,27 @@ function generatePianoKeys(instrument, svg, startKey, keyCount, whiteSize, black
     })
 }
 
+function generateCircleSector(origin, startAngle, endAngle, startRadius, endRadius, padInner, padOuter) {
+    let sector = document.createElementNS("http://www.w3.org/2000/svg", "path");
+
+    let bl = v_add(origin, v_sincos(startRadius, startAngle + padInner))
+    let br = v_add(origin, v_sincos(startRadius, endAngle - padInner))
+    let tl = v_add(origin, v_sincos(endRadius, startAngle + padOuter))
+    let tr = v_add(origin, v_sincos(endRadius, endAngle - padOuter))
+
+    let svgValue
+        = `M ${v_str(bl)} L ${v_str(tl)} A ${endRadius} ${endRadius} 1 0 1 ${v_str(tr)}`
+        + `L ${v_str(br)} A ${startRadius} ${startRadius} 1 0 0 ${v_str(bl)} z`
+
+    sector.setAttributeNS(null, "d", svgValue);
+    sector.setAttributeNS(null, "fill", "#bbbbbb");
+
+    return sector
+}
+
 function generateCircleOfFifths(instrument, svg, origin, radii) {
+    let layers = [ [], [], [] ]
+
     let sectorAngle = (2 * Math.PI) / 12
     let initialAngle = -(Math.PI / 2) - (sectorAngle / 2)
     let angle = initialAngle
@@ -325,41 +389,21 @@ function generateCircleOfFifths(instrument, svg, origin, radii) {
         let r1 = radii[currentRadius + 1] - layerPadding
         let rm = (r0 + r1) / 2
 
-        let dinner = Math.atan(sectorPadding / r0)
-        let douter = Math.atan(sectorPadding / r1)
+        let padInner = Math.atan(sectorPadding / r0)
+        let padOuter = Math.atan(sectorPadding / r1)
 
-        for(let i = 0; i < 12; i++) {
-            let sector = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            
-            let nextAngle = angle + sectorAngle
-            let midAngle = angle + (sectorAngle / 2)
+        for(let i = 0; i < 12; i++, angle += sectorAngle, currentKey += INT_PFT5) {
+            let sector = generateCircleSector(origin, angle, angle + sectorAngle, r0, r1, padInner, padOuter)
 
-            let bl = v_add(origin, v_sincos(r0, angle + dinner))
-            let br = v_add(origin, v_sincos(r0, nextAngle - dinner))
-            let tl = v_add(origin, v_sincos(r1, angle + douter))
-            let tr = v_add(origin, v_sincos(r1, nextAngle - douter))
+            sector.chord = mkChord(normalizeKey(currentKey), triads[currentRadius])
+            sector.index = i
 
-            let svgValue
-                = `M ${v_str(bl)} L ${v_str(tl)} A ${r1} ${r1} 1 0 1 ${v_str(tr)}`
-                + `L ${v_str(br)} A ${r0} ${r0} 1 0 0 ${v_str(bl)} z`
-
-            sector.setAttributeNS(null, "d", svgValue);
-            sector.setAttributeNS(null, "fill", "#bbbbbb");
-
-            sector.key = currentKey
-            sector.triad = triads[currentRadius]
-            sector.onmousedown = doHoldActionClick(
-                e => keyToTriad(e.target.key, e.target.triad).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0)),
-                e => keyToTriad(e.target.key, e.target.triad).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
-            )
-
-            currentKey = normalizeKey(currentKey + INT_PFT5) + OCTAVE_3
             svg.appendChild(sector)
 
-            angle = nextAngle
+            let midAngle = angle + (sectorAngle / 2)
+            let pos = v_add(origin, v_sincos(rm, midAngle))
 
             let text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            let pos = v_add(origin, v_sincos(rm, midAngle))
             text.setAttribute("text-anchor", "middle")
             text.setAttribute("dominant-baseline", "central")
             text.setAttribute("fill", "#ff0000")
@@ -373,13 +417,115 @@ function generateCircleOfFifths(instrument, svg, origin, radii) {
             text.style["font-size"] = `${fontSize}em`
 
             svg.appendChild(text)
+            layers[currentRadius].push(sector)
         }
+    }
+
+    return {
+        selectedTonality: 0, // NOTE: Index of C major on outer layer
+        layers: layers,
+    }
+}
+
+
+function generatePicker(instrument, svg, origin, radii) {
+    let sectorAngle = (2 * Math.PI) / 30
+    let initialAngle = -(Math.PI / 2) - (sectorAngle + sectorAngle / 2)
+
+    let layerPadding = 0.5
+    let sectorPadding = 0.5
+
+    let padInner = Math.atan(sectorPadding / radii[2])
+    let padOuter = Math.atan(sectorPadding / radii[3])
+
+    let radiiInner = radii.map(r => r + layerPadding)
+    let radiiOuter = radii.map(r => r - layerPadding)
+
+    let padsInner = radiiInner.map(r => Math.atan(sectorPadding / r))
+    let padsOuter = radiiOuter.map(r => Math.atan(sectorPadding / r))
+
+    let angleDelta = 0.01
+    let sectorAngles = [
+        sectorAngle - angleDelta,
+        sectorAngle + 2*angleDelta,
+        sectorAngle - angleDelta
+    ]
+
+    let sectors = []
+
+    for(let currentRadius = 2; currentRadius >= 1; currentRadius--) {
+        let angle = initialAngle
+        for(let i = 0; i < 3; i++) {
+            let r0 = radiiInner[currentRadius]
+            let r1 = radiiOuter[currentRadius + 1]
+            
+            let sector = generateCircleSector(origin,
+                angle, angle + sectorAngles[i],
+                r0, r1,
+                padsInner[currentRadius], padsOuter[currentRadius + 1])
+
+            sector.layer = currentRadius
+            sector.offset = i - 1
+
+            svg.appendChild(sector)
+            sectors.push(sector)
+
+            let midAngle = angle + (sectorAngles[i] / 2)
+            let pos = v_add(origin, v_sincos((r0 + r1) / 2, midAngle))
+            sector.textPos = pos
+
+            angle += sectorAngles[i]
+        }
+    }
+
+    let sector = generateCircleSector(origin,
+        initialAngle + sectorAngles[0], initialAngle + sectorAngles[0] + sectorAngles[1],
+        radiiInner[0], radiiOuter[1],
+        padsInner[0], padsOuter[1])
+
+    sector.layer = 0
+    sector.offset = 0
+
+    svg.appendChild(sector)
+    sectors.push(sector)
+    let midAngle = initialAngle + sectorAngles[0] + (sectorAngles[1] / 2)
+    let pos = v_add(origin, v_sincos((radiiInner[0] + radiiOuter[1]) / 2, midAngle))
+    sector.textPos = pos
+
+    // let labels = [ "Lyd", "Maj", "Mix", "Dor", "Min", "Phr", "Loc" ]
+    let labels = [ "IV", "I", "V", "ii", "vi", "iii", "vii&deg;" ]
+    let modes = [ MODE_LYDIAN, MODE_IONIAN, MODE_MIXOLYDIAN,
+                  MODE_DORIAN, MODE_AEOLIAN, MODE_PHRYGIAN,
+                  MODE_LOCRIAN ]
+    
+    sectors.map((sector, i) => {
+        sector.mode = modes[i]
+
+        let pos = sector.textPos
+        let text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("text-anchor", "middle")
+        text.setAttribute("dominant-baseline", "central")
+        text.setAttribute("fill", "#ff0000")
+        text.setAttribute("x", pos.x)
+        text.setAttribute("y", pos.y)
+        text.innerHTML = labels[i]
+        text.style["user-select"] = "none"
+        text.style["pointer-events"] = "none"
+        text.style["font-size"] = `0.35em`
+
+        sector.text = text
+
+        svg.appendChild(text)
+    })
+
+    return {
+        sectors: sectors,
     }
 }
 
 
 {
-    let pianoSvg = document.getElementsByClassName("piano-keys")[0].children[0];
+    let pianoSvg = document.getElementsByClassName("piano")[0].getElementsByClassName("piano-keys")[0];
     let pianoGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
     pianoGroup.style["transition"] = "all 0.2s"
     pianoGroup.position = v_0()
@@ -428,15 +574,102 @@ function generateCircleOfFifths(instrument, svg, origin, radii) {
 
             doHoldActionKey(input,
                 e => instrumentPressKey(instrument, index),
-                e => instrumentUnpressKey(instrument, index))
-            (e)
+                e => instrumentUnpressKey(instrument, index)
+            )(e)
         }
     }
 
 
 
     
-    let circleSvg = document.getElementsByClassName("circle")[0].children[0];
+    let circleSvg = document.getElementsByClassName("tonality")[0].getElementsByClassName("tonality-circle")[0];
 
-    generateCircleOfFifths(instrument, circleSvg, v_xy(50, 50), [15, 25, 35, 50])
+    let pickerSvg = document.getElementsByClassName("tonality")[0].getElementsByClassName("tonality-settings-picker")[0];
+    let selectTonalityButton = document.getElementsByClassName("tonality")[0].getElementsByClassName("tonality-settings-select")[0];
+    let displayTonalityText = document.getElementsByClassName("tonality")[0].getElementsByClassName("tonality-settings-display")[0];
+
+    let circle = generateCircleOfFifths(instrument, circleSvg, v_xy(50, 50), [15, 25, 35, 50])
+    let picker = generatePicker(instrument, pickerSvg, v_xy(31, 100), [64, 76, 88, 100])
+
+    function setupCirclePlayer(circle) {
+        circle.layers.map(layer => layer.map(sector => {
+            sector.onmousedown = doHoldActionClick(
+                e => keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0)),
+                e => keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+            )
+        }))
+    }
+    setupCirclePlayer(circle)
+
+    function setupPickerPlayer(picker) {
+        picker.sectors.map((sector, i) => {
+            sector.onmousedown = doHoldActionClick(
+                e => {
+                    let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
+                    keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+                },
+                e => {
+                    let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
+                    keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+                })
+        })
+    }
+    setupPickerPlayer(picker)
+
+    // NOTE: first of all break this into chunks, but also maybe allow to cancel?
+    selectTonalityButton.onclick = e => {
+        circle.layers.map(layer => layer.map(sector => {
+            sector.onmousedown = e => {}
+            sector.setAttributeNS(null, "fill", "#666666");
+        }))
+
+        picker.sectors.map((sector, i) => {
+            sector.onmousedown = e => {}
+
+            sector.text.innerHTML = getModeShortName(sector.mode)
+            sector.onclick = e => {
+                let offset = sector.offset
+                let pickedMode = sector.mode
+
+                picker.sectors.map(sector => {
+                    sector.onclick = e => {}
+                    sector.setAttributeNS(null, "fill", "#666666");
+                })
+
+                let activeLayer = e.target.layer
+
+                circle.layers.map((layer, i) => {
+                    if(i === activeLayer) {
+                        layer.map(sector => {
+                            sector.setAttributeNS(null, "fill", "#bbbbbb");
+
+                            sector.onclick = e => {
+                                let note = e.target.chord.root
+
+                                displayTonalityText.innerText = `Tonality: ${getKeyName(note)} ${getModeName(pickedMode)}`
+
+                                picker.sectors.map(sector => {
+                                    sector.setAttributeNS(null, "fill", "#bbbbbb");
+
+                                    let degree = mod(sector.mode - pickedMode, 7)
+                                    let label = getRomanLabel(degree, sector.layer === 2)
+                                    if(sector.layer === 0) label += "&deg;"
+                                    sector.text.innerHTML = label
+                                })
+                                setupPickerPlayer(picker)
+
+                                circle.layers.map(layer => layer.map(sector => {
+                                    sector.onclick = e => {}
+                                    sector.setAttributeNS(null, "fill", "#bbbbbb");
+                                }))
+                                setupCirclePlayer(circle)
+
+                                circle.selectedTonality = mod(e.target.index - offset, 12)
+                            }
+                        })
+                    }
+                })
+            }
+        })
+    }
 }
