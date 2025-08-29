@@ -180,16 +180,30 @@ function playKey(key) {
     if(!_keyAudios) {
         _keyAudios = []
 
-        // TODO: something something look into promises maybe?
-        for(let i = KEY_A + OCTAVE_0; i < KEY_A + OCTAVE_0 + 88; i++) {
-            let index = i
-            fetch(`/share/music/piano-keys/Piano.ff.${getFullKeyName(i)}.wav.mp3`)
-                .then(response => response.arrayBuffer())
-                .then(buffer => audioContext.decodeAudioData(buffer))
-                .then(data => {
-                    _keyAudios[i] = data
-                });
-        }
+        fetch(`/share/music/piano-keys.tar`)
+            .then(response => response.arrayBuffer())
+            .then(buffer => untar(buffer))
+            .then(files => {
+                return Promise.all(files.map(file => {
+                    let name = file.name[9]
+                    let digit = 0
+
+                    if(file.name[10] >= "0" && file.name[10] <= "9") {
+                        digit = parseInt(file.name[10])
+                    }
+                    else {
+                        name += file.name[10]
+                        digit = parseInt(file.name[11])
+                    }
+
+                    let index = getKeyIndex(name) + digit*OCTAVE_1
+
+                    return audioContext.decodeAudioData(file.buffer)
+                        .then(data => {
+                            _keyAudios[index] = data
+                        })
+                }))
+            })
     }
 
     const source = audioContext.createBufferSource()
@@ -229,6 +243,8 @@ function keyIsWhite(key) { return !keyIsBlack(key) }
 let _keyNames = [ "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" ]
 function getKeyName(key) { return _keyNames[normalizeKey(key)] }
 function getFullKeyName(key) { return `${getKeyName(key)}${keyOctave(key)}` }
+
+function getKeyIndex(keyName) { return _keyNames.indexOf(keyName) }
 
 
 
