@@ -406,7 +406,7 @@ function generateCircleOfFifths(instrument, svg, origin, radii) {
             let text = document.createElementNS("http://www.w3.org/2000/svg", "text");
             text.setAttribute("text-anchor", "middle")
             text.setAttribute("dominant-baseline", "central")
-            text.setAttribute("fill", "#ff0000")
+            text.setAttribute("fill", "#444444")
             text.setAttribute("x", pos.x)
             text.setAttribute("y", pos.y)
             text.innerHTML = circleLabels[currentRadius][i]
@@ -505,7 +505,7 @@ function generatePicker(instrument, svg, origin, radii) {
         let text = document.createElementNS("http://www.w3.org/2000/svg", "text");
         text.setAttribute("text-anchor", "middle")
         text.setAttribute("dominant-baseline", "central")
-        text.setAttribute("fill", "#ff0000")
+        text.setAttribute("fill", "#444444")
         text.setAttribute("x", pos.x)
         text.setAttribute("y", pos.y)
         text.innerHTML = labels[i]
@@ -523,6 +523,109 @@ function generatePicker(instrument, svg, origin, radii) {
     }
 }
 
+function disableCircle(circle) {
+    circle.layers.map(layer => layer.map(sector => {
+        sector.onclick = e => {}
+        sector.onmousedown = e => {}
+        sector.setAttributeNS(null, "fill", "#666666");
+    }))
+}
+
+function disablePicker(picker) {
+    picker.sectors.map(sector => {
+        sector.onclick = e => {}
+        sector.onmousedown = e => {}
+        sector.setAttributeNS(null, "fill", "#666666");
+    })
+}
+
+function onPickMode(e, circle, picker, sector) {
+    let offset = sector.offset
+    let pickedMode = sector.mode
+
+    disablePicker(picker)
+
+    let activeLayer = e.target.layer
+
+    circle.layers[activeLayer].map(sector => {
+        sector.setAttributeNS(null, "fill", "#bbbbbb");
+        sector.onclick = e => onPickRoot(e, circle, picker, sector, offset, pickedMode)
+    })
+}
+
+function setupPickerFunctionLabels(picker, mode) {
+    picker.sectors.map(sector => {
+        let degree = mod(sector.mode - mode, 7)
+        let label = getRomanLabel(degree, sector.layer === 2)
+        if(sector.layer === 0) label += "&deg;"
+        sector.text.innerHTML = label
+    })
+}
+
+function circleHighlightTonality(circle, color) {
+    for(let l = 1; l <= 2; l++) {
+        for(let i = -1; i <= 1; i++) {
+            let sector = circle.layers[l][mod(circle.selectedTonality + i, 12)]
+            sector.setAttributeNS(null, "fill", color);
+        }
+    }
+
+    circle.layers[0][circle.selectedTonality].setAttributeNS(null, "fill", color);
+}
+
+function onPickRoot(e, circle, picker, sector, offset, pickedMode) {
+    let root = e.target.chord.root
+
+    picker.displayText.innerText = `Tonality: ${getKeyName(root)} ${getModeName(pickedMode)}`
+
+    picker.sectors.map(sector => {
+        sector.setAttributeNS(null, "fill", "#bbbbbb");
+    })
+    setupPickerPlayer(circle, picker)
+    setupPickerFunctionLabels(picker, pickedMode)
+
+    circle.layers.map(layer => layer.map(sector => {
+        sector.onclick = e => {}
+        sector.setAttributeNS(null, "fill", "#bbbbbb");
+    }))
+    setupCirclePlayer(circle)
+
+    circle.selectedTonality = mod(e.target.index - offset, 12)
+
+    circleHighlightTonality(circle, "#dddddd")
+    sector.setAttributeNS(null, "fill", "#ffffff");
+}
+
+function setupCirclePlayer(circle) {
+    circle.layers.map(layer => layer.map(sector => {
+        sector.onmousedown = doHoldActionClick(
+            e => {
+                let instrument = circle.instrument
+                keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+            },
+            e => {
+                let instrument = circle.instrument
+                keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+            }
+        )
+    }))
+}
+
+function setupPickerPlayer(circle, picker) {
+    picker.sectors.map((sector, i) => {
+        sector.onmousedown = doHoldActionClick(
+            e => {
+                let instrument = circle.instrument
+                let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
+                keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+            },
+            e => {
+                let instrument = circle.instrument
+                let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
+                keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+            })
+    })
+}
 
 {
     let pianoSvg = document.getElementsByClassName("piano")[0].getElementsByClassName("piano-keys")[0];
@@ -590,86 +693,22 @@ function generatePicker(instrument, svg, origin, radii) {
 
     let circle = generateCircleOfFifths(instrument, circleSvg, v_xy(50, 50), [15, 25, 35, 50])
     let picker = generatePicker(instrument, pickerSvg, v_xy(31, 100), [64, 76, 88, 100])
+    picker.displayText = displayTonalityText
 
-    function setupCirclePlayer(circle) {
-        circle.layers.map(layer => layer.map(sector => {
-            sector.onmousedown = doHoldActionClick(
-                e => keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0)),
-                e => keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
-            )
-        }))
-    }
+    circle.instrument = instrument
+
     setupCirclePlayer(circle)
+    setupPickerPlayer(circle, picker)
 
-    function setupPickerPlayer(picker) {
-        picker.sectors.map((sector, i) => {
-            sector.onmousedown = doHoldActionClick(
-                e => {
-                    let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
-                    keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
-                },
-                e => {
-                    let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
-                    keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
-                })
-        })
-    }
-    setupPickerPlayer(picker)
 
-    // NOTE: first of all break this into chunks, but also maybe allow to cancel?
     selectTonalityButton.onclick = e => {
-        circle.layers.map(layer => layer.map(sector => {
-            sector.onmousedown = e => {}
-            sector.setAttributeNS(null, "fill", "#666666");
-        }))
+        disableCircle(circle)
 
         picker.sectors.map((sector, i) => {
             sector.onmousedown = e => {}
 
             sector.text.innerHTML = getModeShortName(sector.mode)
-            sector.onclick = e => {
-                let offset = sector.offset
-                let pickedMode = sector.mode
-
-                picker.sectors.map(sector => {
-                    sector.onclick = e => {}
-                    sector.setAttributeNS(null, "fill", "#666666");
-                })
-
-                let activeLayer = e.target.layer
-
-                circle.layers.map((layer, i) => {
-                    if(i === activeLayer) {
-                        layer.map(sector => {
-                            sector.setAttributeNS(null, "fill", "#bbbbbb");
-
-                            sector.onclick = e => {
-                                let note = e.target.chord.root
-
-                                displayTonalityText.innerText = `Tonality: ${getKeyName(note)} ${getModeName(pickedMode)}`
-
-                                picker.sectors.map(sector => {
-                                    sector.setAttributeNS(null, "fill", "#bbbbbb");
-
-                                    let degree = mod(sector.mode - pickedMode, 7)
-                                    let label = getRomanLabel(degree, sector.layer === 2)
-                                    if(sector.layer === 0) label += "&deg;"
-                                    sector.text.innerHTML = label
-                                })
-                                setupPickerPlayer(picker)
-
-                                circle.layers.map(layer => layer.map(sector => {
-                                    sector.onclick = e => {}
-                                    sector.setAttributeNS(null, "fill", "#bbbbbb");
-                                }))
-                                setupCirclePlayer(circle)
-
-                                circle.selectedTonality = mod(e.target.index - offset, 12)
-                            }
-                        })
-                    }
-                })
-            }
+            sector.onclick = e => onPickMode(e, circle, picker, sector)
         })
     }
 }
