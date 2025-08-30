@@ -40,10 +40,13 @@ function mod(a, b) {
 
 
 
-let _keyboardOctaves = "zsxdcvgbhnjmq2w3er5t6y7u"
 
 
 
+
+
+
+// Keys
 const KEY_C = 0
 
 const KEY_CS = 1
@@ -73,8 +76,22 @@ const KEY_BB = 10
 
 const KEY_B = 11
 
+function normalizeKey(key) { return key % 12 }
+function keyOctave(key) { return Math.floor(key / 12) }
+
+let _blackKeys = [1, 3, 6, 8, 10]
+function keyIsBlack(key) { return _blackKeys.includes(normalizeKey(key)) }
+function keyIsWhite(key) { return !keyIsBlack(key) }
+
+let _keyNames = [ "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" ]
+function getKeyName(key) { return _keyNames[normalizeKey(key)] }
+function getFullKeyName(key) { return `${getKeyName(key)}${keyOctave(key)}` }
+
+function getKeyIndex(keyName) { return _keyNames.indexOf(keyName) }
 
 
+
+// Octaves
 const OCTAVE_0 = 12 * 0
 const OCTAVE_1 = 12 * 1
 const OCTAVE_2 = 12 * 2
@@ -87,6 +104,7 @@ const OCTAVE_8 = 12 * 8
 
 
 
+// Intervals
 const INT_MIN2 = 1
 
 const INT_MAJ2 = 2
@@ -117,6 +135,7 @@ const INT_PFT8 = 12
 
 
 
+// Modes
 const MODE_IONIAN = 0
 const MODE_DORIAN = 1
 const MODE_PHRYGIAN = 2
@@ -136,6 +155,7 @@ function getModeShortName(mode) {
 }
 
 
+// Functions
 let _upperRoman = [ "I", "II", "III", "IV", "V", "VI", "VII" ]
 let _lowerRoman = [ "i", "ii", "iii", "iv", "v", "vi", "vii" ]
 
@@ -146,12 +166,11 @@ function getRomanLabel(degree, major) {
 
 
 
+// Triads
 const TRIAD_DIM = 0
 const TRIAD_MIN = 1
 const TRIAD_MAJ = 2
 const TRIAD_AUG = 3
-
-
 
 function mkChord(note, type) {
     return {
@@ -159,8 +178,6 @@ function mkChord(note, type) {
         type: type,
     }
 }
-
-
 
 function keyToTriad(key, triad) {
     let m1 = (triad === TRIAD_DIM || triad === TRIAD_MIN)
@@ -173,6 +190,15 @@ function keyToTriad(key, triad) {
 
 
 
+
+
+
+
+
+
+// TODO: customizable input
+let _keyboardOctaves = "zsxdcvgbhnjmq2w3er5t6y7u"
+
 const audioContext = new AudioContext()
 
 let _keyAudios = undefined
@@ -180,38 +206,53 @@ function playKey(key) {
     if(!_keyAudios) {
         _keyAudios = []
 
+        // TODO: loading bar or smth
         fetch(`/share/music/piano-keys.tar`)
             .then(response => response.arrayBuffer())
             .then(buffer => untar(buffer))
-            .then(files => {
-                return Promise.all(files.map(file => {
-                    let name = file.name[9]
-                    let digit = 0
+            .then(files => Promise.all(files.map(file => {
+                let name = file.name[9]
+                let digit = 0
 
-                    if(file.name[10] >= "0" && file.name[10] <= "9") {
-                        digit = parseInt(file.name[10])
-                    }
-                    else {
-                        name += file.name[10]
-                        digit = parseInt(file.name[11])
-                    }
+                if(file.name[10] >= "0" && file.name[10] <= "9") {
+                    digit = parseInt(file.name[10])
+                }
+                else {
+                    name += file.name[10]
+                    digit = parseInt(file.name[11])
+                }
 
-                    let index = getKeyIndex(name) + digit*OCTAVE_1
+                let index = getKeyIndex(name) + digit*OCTAVE_1
 
-                    return audioContext.decodeAudioData(file.buffer)
-                        .then(data => {
-                            _keyAudios[index] = data
-                        })
-                }))
-            })
+                return audioContext.decodeAudioData(file.buffer)
+                    .then(data => {
+                        _keyAudios[index] = data
+                    })
+            })))
     }
 
     const source = audioContext.createBufferSource()
     source.buffer = _keyAudios[key]
-    source.connect(audioContext.destination)
+
+    const gain = audioContext.createGain()
+    source.connect(gain)
+
+    gain.connect(audioContext.destination)
+
     source.start(audioContext.currentTime)
 
-    return source
+    return { source: source, gain: gain }
+}
+
+function fadeOutKey(fadeOut, source, gain) {
+    const now = audioContext.currentTime;
+    
+    gain.cancelScheduledValues(now)
+
+    gain.setValueAtTime(gain.value, now)
+    gain.exponentialRampToValueAtTime(0.01, now + fadeOut)
+
+    source.stop(now + fadeOut)
 }
 
 function playKeysSimultaneously(keys) {
@@ -232,19 +273,6 @@ const KEY_COLOR_WHITE = "#fff6e0"
 const KEY_COLOR_BLACK = "#241a02"
 
 
-function normalizeKey(key) { return key % 12 }
-function keyOctave(key) { return Math.floor(key / 12) }
-
-
-let _blackKeys = [1, 3, 6, 8, 10]
-function keyIsBlack(key) { return _blackKeys.includes(normalizeKey(key)) }
-function keyIsWhite(key) { return !keyIsBlack(key) }
-
-let _keyNames = [ "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B" ]
-function getKeyName(key) { return _keyNames[normalizeKey(key)] }
-function getFullKeyName(key) { return `${getKeyName(key)}${keyOctave(key)}` }
-
-function getKeyIndex(keyName) { return _keyNames.indexOf(keyName) }
 
 
 
@@ -267,6 +295,7 @@ function instrumentPressKey(instrument, keyn) {
 
 
 
+// TODO: i should probably come up with a better system
 function doHoldActionClick(press, unpress) {
     return (e) => {
         let result = press(e)
@@ -437,10 +466,16 @@ function generateCircleOfFifths(instrument, svg, origin, radii) {
         }
     }
 
-    return {
-        selectedTonality: 0, // NOTE: Index of C major on outer layer
+    let circle = {
+        selectedTonalityCenter: 0, // NOTE: Index of C major on outer layer
+
+        selectedTonalityOffset: 0,
+        selectedTonalityLayer: 2,
+
         layers: layers,
     }
+
+    return circle
 }
 
 
@@ -508,8 +543,6 @@ function generatePicker(instrument, svg, origin, radii) {
     let pos = v_add(origin, v_sincos((radiiInner[0] + radiiOuter[1]) / 2, midAngle))
     sector.textPos = pos
 
-    // let labels = [ "Lyd", "Maj", "Mix", "Dor", "Min", "Phr", "Loc" ]
-    let labels = [ "IV", "I", "V", "ii", "vi", "iii", "vii&deg;" ]
     let modes = [ MODE_LYDIAN, MODE_IONIAN, MODE_MIXOLYDIAN,
                   MODE_DORIAN, MODE_AEOLIAN, MODE_PHRYGIAN,
                   MODE_LOCRIAN ]
@@ -524,7 +557,7 @@ function generatePicker(instrument, svg, origin, radii) {
         text.setAttribute("fill", "#444444")
         text.setAttribute("x", pos.x)
         text.setAttribute("y", pos.y)
-        text.innerHTML = labels[i]
+        text.innerHTML = ""
         text.style["user-select"] = "none"
         text.style["pointer-events"] = "none"
         text.style["font-size"] = `0.35em`
@@ -534,9 +567,14 @@ function generatePicker(instrument, svg, origin, radii) {
         svg.appendChild(text)
     })
 
-    return {
+    let picker = { 
         sectors: sectors,
+        mode: MODE_IONIAN
     }
+
+    setupPickerFunctionLabels(picker)
+
+    return picker
 }
 
 function disableCircle(circle) {
@@ -548,6 +586,8 @@ function disableCircle(circle) {
 }
 
 function disablePicker(picker) {
+    document.removeEventListener("keydown", picker.eventFlip)
+
     picker.sectors.map(sector => {
         sector.onclick = e => {}
         sector.onmousedown = e => {}
@@ -556,8 +596,7 @@ function disablePicker(picker) {
 }
 
 function onPickMode(e, circle, picker, sector) {
-    let offset = sector.offset
-    let pickedMode = sector.mode
+    let modeSector = sector
 
     disablePicker(picker)
 
@@ -565,15 +604,27 @@ function onPickMode(e, circle, picker, sector) {
 
     circle.layers[activeLayer].map(sector => {
         sector.setAttributeNS(null, "fill", "#bbbbbb");
-        sector.onclick = e => onPickRoot(e, circle, picker, sector, offset, pickedMode)
+        sector.onclick = e => onPickRoot(e, circle, picker, sector, modeSector)
     })
 }
 
-function setupPickerFunctionLabels(picker, mode) {
+function setupPickerFunctionLabels(picker) {
+    let mode = picker.mode
     picker.sectors.map(sector => {
         let degree = mod(sector.mode - mode, 7)
         let label = getRomanLabel(degree, sector.layer === 2)
         if(sector.layer === 0) label += "&deg;"
+
+        sector.text.innerHTML = label
+    })
+}
+
+function setupPickerFunctionLabelsShift(picker) {
+    let mode = picker.mode
+    picker.sectors.map(sector => {
+        let degree = mod(sector.mode - mode, 7)
+        let label = getRomanLabel(degree, sector.layer !== 2)
+
         sector.text.innerHTML = label
     })
 }
@@ -581,24 +632,36 @@ function setupPickerFunctionLabels(picker, mode) {
 function circleHighlightTonality(circle, color) {
     for(let l = 1; l <= 2; l++) {
         for(let i = -1; i <= 1; i++) {
-            let sector = circle.layers[l][mod(circle.selectedTonality + i, 12)]
-            sector.setAttributeNS(null, "fill", color);
+            let sector = circle.layers[l][mod(circle.selectedTonalityCenter + i, 12)]
+            sector.setAttributeNS(null, "fill", "#dddddd");
         }
     }
 
-    circle.layers[0][circle.selectedTonality].setAttributeNS(null, "fill", color);
+    circle.layers[0][circle.selectedTonalityCenter].setAttributeNS(null, "fill", "#dddddd");
+
+    circle.layers[circle.selectedTonalityLayer][mod(circle.selectedTonalityCenter + circle.selectedTonalityOffset, 12)]
+        .setAttributeNS(null, "fill", "#ffffff");
 }
 
-function onPickRoot(e, circle, picker, sector, offset, pickedMode) {
+function circleSelectTonality(circle, index, modeOffset, modeLayer) {
+    circle.selectedTonalityCenter = mod(index + (-modeOffset), 12)
+    circle.selectedTonalityOffset = modeOffset
+    circle.selectedTonalityLayer = modeLayer
+
+    circleHighlightTonality(circle)
+}
+
+function onPickRoot(e, circle, picker, sector, modeSector) {
     let root = e.target.chord.root
 
-    picker.displayText.innerText = `Tonality: ${getKeyName(root)} ${getModeName(pickedMode)}`
+    picker.displayText.innerText = `Tonality: ${getKeyName(root)} ${getModeName(modeSector.mode)}`
 
     picker.sectors.map(sector => {
         sector.setAttributeNS(null, "fill", "#bbbbbb");
     })
     setupPickerPlayer(circle, picker)
-    setupPickerFunctionLabels(picker, pickedMode)
+    picker.mode = modeSector.mode
+    setupPickerFunctionLabels(picker)
 
     circle.layers.map(layer => layer.map(sector => {
         sector.onclick = e => {}
@@ -606,10 +669,7 @@ function onPickRoot(e, circle, picker, sector, offset, pickedMode) {
     }))
     setupCirclePlayer(circle)
 
-    circle.selectedTonality = mod(e.target.index - offset, 12)
-
-    circleHighlightTonality(circle, "#dddddd")
-    sector.setAttributeNS(null, "fill", "#ffffff");
+    circleSelectTonality(circle, e.target.index, modeSector.offset, modeSector.layer)
 }
 
 function setupCirclePlayer(circle) {
@@ -617,11 +677,14 @@ function setupCirclePlayer(circle) {
         sector.onmousedown = doHoldActionClick(
             e => {
                 let instrument = circle.instrument
-                keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+                let root = e.target.chord.root + OCTAVE_3
+                let triad = keyToTriad(root, e.target.chord.type)
+                triad.map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+                return triad
             },
-            e => {
+            (e, triad) => {
                 let instrument = circle.instrument
-                keyToTriad(e.target.chord.root + OCTAVE_3, e.target.chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+                triad.map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
             }
         )
     }))
@@ -631,16 +694,37 @@ function setupPickerPlayer(circle, picker) {
     picker.sectors.map((sector, i) => {
         sector.onmousedown = doHoldActionClick(
             e => {
-                let instrument = circle.instrument
-                let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
-                keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentPressKey(instrument, key - KEY_A - OCTAVE_0))
+                let chord = circle.layers[e.target.layer][mod(circle.selectedTonalityCenter + e.target.offset, 12)].chord
+                let type = chord.type
+
+                if(picker.doFlip) {
+                    if(false){}
+                    else if(type === TRIAD_MIN) type = TRIAD_MAJ
+                    else if(type === TRIAD_MAJ) type = TRIAD_MIN
+                    else if(type === TRIAD_DIM) type = TRIAD_MAJ
+                }
+
+                let triad = keyToTriad(chord.root + OCTAVE_3, type)
+
+                triad.map(key => instrumentPressKey(circle.instrument, key - (KEY_A + OCTAVE_0)))
+                return triad
             },
-            e => {
-                let instrument = circle.instrument
-                let chord = circle.layers[e.target.layer][mod(circle.selectedTonality + e.target.offset, 12)].chord
-                keyToTriad(chord.root + OCTAVE_3, chord.type).map(key => instrumentUnpressKey(instrument, key - KEY_A - OCTAVE_0))
+            (e, triad) => {
+                triad.map(key => instrumentUnpressKey(circle.instrument, key - (KEY_A + OCTAVE_0)))
             })
     })
+
+    picker.eventFlip = doHoldActionKey("Shift",
+        e => {
+            picker.doFlip = true
+            setupPickerFunctionLabelsShift(picker)
+        },
+        e => {
+            picker.doFlip = false
+            setupPickerFunctionLabels(picker)
+        })
+
+    document.addEventListener("keydown", e => picker.eventFlip(e))
 }
 
 {
@@ -664,8 +748,7 @@ function setupPickerPlayer(circle, picker) {
                 return playKey(keyn)
             },
             unpressAction: (instrument, key) => {
-                // TODO: fadeout
-                key.state.stop()
+                fadeOutKey(0.5, key.state.source, key.state.gain.gain)
             }
         }
     }
